@@ -1,0 +1,31 @@
+{
+  "name": "6lottery-telegram-bot",
+  "version": "1.0.0",
+  "description": "Auto betting bot for 6LOTTERY platform with Telegram interface",
+  "main": "index3.js",
+  "scripts": {
+    "start": "node index3.js",
+    "dev": "nodemon index3.js"
+  },
+  "keywords": [
+    "telegram-bot",
+    "6lottery",
+    "auto-betting",
+    "gambling",
+    "wingo",
+    "trx"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "node-telegram-bot-api": "^0.64.0",
+    "sqlite3": "^5.1.6"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

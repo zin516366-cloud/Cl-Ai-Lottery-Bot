@@ -154,15 +154,23 @@ addMissingColumns() {
                 }
                 
                 const columns = rows.map(row => row.name);
+                // ✅ ဒီမှာ column ရှိပြီးသားလား စစ်ပါ
                 if (!columns.includes(col.column)) {
                     const alterSql = `ALTER TABLE ${col.table} ADD COLUMN ${col.column} ${col.type}`;
                     this.db.run(alterSql, (alterErr) => {
                         if (alterErr) {
-                            console.error(`Error adding column ${col.column} to ${col.table}:`, alterErr);
+                            // ❌ duplicate column error ကို ignore လုပ်ပါ
+                            if (alterErr.message && alterErr.message.includes('duplicate column name')) {
+                                console.log(`Column ${col.column} already exists in ${col.table}, skipping...`);
+                            } else {
+                                console.error(`Error adding column ${col.column} to ${col.table}:`, alterErr);
+                            }
                         } else {
-                            console.log(`Added column ${col.column} to ${col.table}`);
+                            console.log(`✅ Added column ${col.column} to ${col.table}`);
                         }
                     });
+                } else {
+                    console.log(`✅ Column ${col.column} already exists in ${col.table}, skipping...`);
                 }
             });
         } catch (error) {
@@ -1192,6 +1200,8 @@ async showFollowInverseMenu(chatId, userId) {
 }
 
 // Set Follow Inverse Mode
+// Replace the setFollowInverse function (around line 1197) with this:
+
 async setFollowInverse(chatId, userId, enabled) {
     try {
         await this.saveUserSetting(userId, 'follow_inverse', enabled ? 1 : 0);
@@ -1204,14 +1214,13 @@ async setFollowInverse(chatId, userId, enabled) {
         
         // Bot Settings ထဲမှာပဲ ရှိနေအောင် - Main Menu မသွားဘူး
         const message = `Follow Inverse Mode: ${statusText}\n\n${enabled ? 
-            ' '}`;
+            'Bot will bet the opposite of the last result' : 
+            'Follow Inverse is disabled'}`;
         
         // Main Menu မပြဘဲ သတင်းစကားပဲပြမယ်
         await this.bot.sendMessage(chatId, message);
         
         console.log(` Follow inverse mode set to ${enabled} for user ${userId}`);
-        
-    
         
     } catch (error) {
         console.error(` Error setting follow inverse mode for user ${userId}:`, error);
@@ -1776,7 +1785,7 @@ Your credentials will be saved for feathuer use!`;
             const gameId = userInfo.userId || '';
 
             if (!await this.isGameIdAllowed(gameId)) {
-                await this.bot.editMessageText(` Login Failed!\n\nGame ID: ${gameId}\nStatus: NOT ALLOWED\n\nPlease contact admin: trilionx2`, {
+                await this.bot.editMessageText(` Login Failed!\n\nGame ID: ${gameId}\nStatus: NOT ALLOWED\n\nPlease contact admin: @trilionx2`, {
                     chat_id: chatId,
                     message_id: loadingMsg.message_id
                 });

@@ -4,14 +4,14 @@ const axios = require('axios');
 const crypto = require('crypto');
 
 // BOT CONFIGURATION
-const BOT_TOKEN = "8688772916:AAFEvtoMo6KVwTCNotYonxqr5fRYhK5n1i0";
+const BOT_TOKEN = "8999318413:AAFBoi7XfL_Ae7_uYMk9xWN9-oriVJjvl6E";
 const CHANNEL_USERNAME = "@xearningfreehack";
 const CHANNEL_LINK = "https://t.me/xearningfreehack";
 const ADMIN_USER_ID = "8370471165";
 
 // API ENDPOINTS - Only
 const API_ENDPOINTS = {
-    "CKLOTTERY": "https://ckygjf6r.com/api/webapi/" // endpoint only
+    "6LOTTERY": "https://6lotteryapi.com/api/webapi/" // endpoint only
 };
 
 // BET TYPES
@@ -24,7 +24,7 @@ const SIX_LOTTERY_BET_TYPES = {
 };
 
 // DATABASE SETUP
-const DB_NAME = "CKLOTTERY_bot.db";
+const DB_NAME = "6lottery_bot.db";
 
 // GLOBAL STORAGE
 const userSessions = {};
@@ -58,19 +58,23 @@ class Database {
     initDatabase() {
     const tables = [
         `CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            phone TEXT,
-            password TEXT,
-            platform TEXT DEFAULT 'CKLOTTERY',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`,
+    user_id INTEGER PRIMARY KEY,
+    phone TEXT,
+    password TEXT,
+    platform TEXT DEFAULT '6LOTTERY',
+
+    trial_start INTEGER DEFAULT 0,
+    trial_expire INTEGER DEFAULT 0,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`,
         `CREATE TABLE IF NOT EXISTS user_settings (
             user_id INTEGER PRIMARY KEY,
             bet_amount INTEGER DEFAULT 100,
             auto_login BOOLEAN DEFAULT 1,
             bet_sequence TEXT DEFAULT '100,300,700,1600,3200,7600,16000,32000',
             current_bet_index INTEGER DEFAULT 0,
-            platform TEXT DEFAULT 'CKLOTTERY',
+            platform TEXT DEFAULT '6LOTTERY',
             auto_betting BOOLEAN DEFAULT 0,
             random_betting TEXT DEFAULT 'bot',
             profit_target INTEGER DEFAULT 0,
@@ -140,9 +144,12 @@ class Database {
 
 addMissingColumns() {
     const columnsToAdd = [
-        { table: 'user_settings', column: 'crease_mode', type: 'TEXT DEFAULT "none"' },
-        { table: 'user_settings', column: 'follow_inverse', type: 'BOOLEAN DEFAULT 0' }
-    ];
+    { table: 'user_settings', column: 'crease_mode', type: 'TEXT DEFAULT "none"' },
+    { table: 'user_settings', column: 'follow_inverse', type: 'BOOLEAN DEFAULT 0' },
+
+    { table: 'users', column: 'trial_start', type: 'INTEGER DEFAULT 0' },
+    { table: 'users', column: 'trial_expire', type: 'INTEGER DEFAULT 0' }
+];
 
     columnsToAdd.forEach((col) => {
         try {
@@ -208,7 +215,7 @@ all(sql, params = []) {
 }
 
 class LotteryAPI {
-    constructor(platform = 'CKLOTTERY', gameType = 'WINGO') {
+    constructor(platform = '6LOTTERY', gameType = 'WINGO') {
         this.platform = platform;
         this.gameType = gameType;
         this.baseUrl = API_ENDPOINTS[platform];
@@ -218,16 +225,16 @@ class LotteryAPI {
             "Content-Type": "application/json;charset=UTF-8",
             "Origin": this.getOrigin(),
             "Referer": this.getReferer(),
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.7.5 Mobile/15E148 Safari/604.1"
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/22D63 Safari/604.1"
         };
     }
 
     getOrigin() {
-        return "https://cklottery.cc";
+        return "https://www.6win566.com";
     }
 
         getReferer() {
-            return "https://cklottery.cc/";
+            return "https://www.6win566.com/";
     }
 
     signMd5(data) {
@@ -984,7 +991,7 @@ maskPhoneNumber(phone) {
                 step: 'main',
                 phone: '',
                 password: '',
-                platform: 'CKLOTTERY',
+                platform: '6LOTTERY',
                 gameType: 'WINGO_30S',
                 loggedIn: false,
                 apiInstance: null
@@ -1620,7 +1627,7 @@ async setCreaseMode(chatId, userId, mode) {
                 break;
 
             case "":
-                await this.handleSetPlatform(chatId, userId, 'CKLOTTERY');
+                await this.handleSetPlatform(chatId, userId, '6LOTTERY');
                 break;
 
             // CREASE MODE COMMANDS
@@ -1649,7 +1656,7 @@ async setCreaseMode(chatId, userId, mode) {
 
     async showPlatformMenu(chatId, userId) {
     const userSession = this.ensureUserSession(userId);
-    const currentPlatform = userSession.platform || 'CKLOTTERY';
+    const currentPlatform = userSession.platform || '6LOTTERY';
     const currentGameType = userSession.gameType || 'WINGO_1MIN';
 
     let platformInfo = "\n\n: Premium Gaming Platform";
@@ -1682,7 +1689,7 @@ async setCreaseMode(chatId, userId, mode) {
         try {
             const userSession = this.ensureUserSession(userId);
 
-            if (platform === 'CKLOTTERY') {
+            if (platform === '6LOTTERY') {
                 userSession.platform = platform;
                 await this.saveUserSetting(userId, 'platform', platform);
 
@@ -1748,7 +1755,7 @@ async setCreaseMode(chatId, userId, mode) {
         const userSession = this.ensureUserSession(userId);
         userSession.step = 'login';
 
-        userSession.apiInstance = new LotteryAPI('CKLOTTERY', userSession.gameType);
+        userSession.apiInstance = new LotteryAPI('6LOTTERY', userSession.gameType);
 
         const loginGuide = `6 Lottery Login
 
@@ -1775,7 +1782,7 @@ Your credentials will be saved for feathuer use!`;
         return;
     }
 
-    const loadingMsg = await this.bot.sendMessage(chatId, `Logging into ... Please wait.`);
+    const loadingMsg = await this.bot.sendMessage(chatId, `Loading into ... Please wait.`);
 
     try {
         const result = await userSession.apiInstance.login(userSession.phone, userSession.password);
@@ -1793,6 +1800,45 @@ Your credentials will be saved for feathuer use!`;
             }
 
             userSession.loggedIn = true;
+
+// User record မရှိသေးရင် create
+await this.db.run(
+    `INSERT OR IGNORE INTO users(user_id, phone, password, platform)
+     VALUES(?,?,?,?)`,
+    [
+        userId,
+        userSession.phone,
+        userSession.password,
+        userSession.platform
+    ]
+);
+
+const trial = await this.db.get(
+    "SELECT trial_start, trial_expire FROM users WHERE user_id=?",
+    [userId]
+);
+
+const now = Date.now();
+
+if (!trial.trial_start) {
+
+    await this.db.run(
+        `UPDATE users
+         SET trial_start=?,
+             trial_expire=?
+         WHERE user_id=?`,
+        [
+            now,
+            now + 24 * 60 * 60 * 1000,
+            userId
+        ]
+    );
+
+    await this.bot.sendMessage(
+        chatId,
+        "🎁 New Account\n24 Hour Free Trial Activated!"
+    );
+}
             userSession.step = 'main';
 
             const balance = await userSession.apiInstance.getBalance();
@@ -1879,7 +1925,7 @@ Last update: ${getMyanmarTime()}`;
             if (userSession.apiInstance) {
                 results = await userSession.apiInstance.getRecentResults(10);
             } else {
-                const api = new LotteryAPI('CKLOTTERY', gameType);
+                const api = new LotteryAPI('6LOTTERY', gameType);
                 results = await api.getRecentResults(10);
             }
 
@@ -2182,7 +2228,7 @@ Last update: ${getMyanmarTime()}`;
             return;
         }
 
-        const platform = userSession.platform || 'CKLOTTERY';
+        const platform = userSession.platform || '6LOTTERY';
         const gameType = userSession.gameType || 'WINGO';
 
         const pendingBet = await this.db.get(
@@ -2486,6 +2532,21 @@ Last update: ${getMyanmarTime()}`;
     }
 
     async runBot(chatId, userId) {
+        const trial = await this.db.get(
+    "SELECT trial_expire FROM users WHERE user_id=?",
+    [userId]
+);
+
+if (!trial || Date.now() > trial.trial_expire) {
+
+    await this.bot.sendMessage(
+        chatId,
+        "❌ Your 24 Hour Free Trial Expired.\n\nContact Admin."
+    );
+
+    return;
+}
+        
         try {
             const userSession = this.ensureUserSession(userId);
 
@@ -2562,6 +2623,26 @@ Last update: ${getMyanmarTime()}`;
     const maxFailures = 3;
 
     const bettingLoop = async () => {
+        // Trial Check
+const trial = await this.db.get(
+    "SELECT trial_expire FROM users WHERE user_id=?",
+    [userId]
+);
+
+if (!trial || Date.now() > trial.trial_expire) {
+
+    await this.bot.sendMessage(
+        userId,
+        "❌ Your 24 Hour Free Trial has expired.\n\nBot stopped automatically."
+    );
+
+    delete autoBettingTasks[userId];
+    delete waitingForResults[userId];
+
+    await this.saveBotSession(userId, false);
+
+    return;
+}
         if (!autoBettingTasks[userId]) {
             console.log(` Auto betting stopped for user ${userId}`);
             return;
@@ -2904,7 +2985,7 @@ async placeAutoBet(userId, issue) {
         }
     }
 
-    async saveUserCredentials(userId, phone, password, platform = 'CKLOTTERY') {
+    async saveUserCredentials(userId, phone, password, platform = '6LOTTERY') {
         try {
             await this.db.run(
                 'INSERT OR REPLACE INTO users (user_id, phone, password, platform) VALUES (?, ?, ?, ?)',
@@ -3233,7 +3314,7 @@ Choose your betting mode:`;
     }
 
     try {
-        const platform = userSession.platform || 'CKLOTTERY';
+        const platform = userSession.platform || '6LOTTERY';
         const myBets = await this.getBetHistory(userId, platform, 10);
 
         if (!myBets || myBets.length === 0) {

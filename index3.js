@@ -2995,8 +2995,51 @@ Message: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`;
     const patternList = slPatternData.pattern.split(',').map(x => parseInt(x.trim()));
     const currentWaitLossLimit = patternList[slPatternData.current_index] || patternList[patternList.length - 1];
 
+    // Get current bet amount
+    const currentMainIndex = await this.getUserSetting(userId, 'current_bet_index', 0);
+    const betSequence = await this.getUserSetting(userId, 'bet_sequence', '100,300,700,1600,3200,7600,16000,32000');
+    const amounts = betSequence.split(',').map(x => parseInt(x.trim()));
+
+    let currentAmount;
+    if (currentMainIndex < amounts.length) {
+        currentAmount = amounts[currentMainIndex];
+    } else {
+        currentAmount = amounts[0] || 100;
+        await this.saveUserSetting(userId, 'current_bet_index', 0);
+    }
+
+    // 🟢 CHECK: WAIT MODE လား စစ်ဆေးပါ
+    if (slSession.is_wait_mode) {
+        console.log(`WAIT BOT MODE - SL ${currentSl} - Wait Loss: ${waitLossCount}/${currentWaitLossLimit}`);
+        
+        // 🟢 WAIT MODE မှာ Bet မထိုးဘူး
+        // WAIT MODE အတွက် pending bet ကို amount 0 နဲ့ save လုပ်ပါ
+        let betTypeStr = `WAIT (SL ${currentSl})`;
+        
+        await this.savePendingBet(userId, userSession.platform, issue, betTypeStr, 0);
+
+        if (!issueCheckers[userId]) {
+            this.startIssueChecker(userId);
+        }
+
+        const waitMessage = `SL Bot - Wait Mode
+
+SL Level: ${currentSl}
+Issue: ${issue}
+Type: Waiting for result...
+Wait Loss: ${waitLossCount}/${currentWaitLossLimit}
+`;
+
+        await this.bot.sendMessage(userId, waitMessage);
+        waitingForResults[userId] = false;
+        return; // 🟢 WAIT MODE မှာ ဘာမှမလုပ်ဘဲ ထွက်သွားမယ်
+    }
+
+    // 🔴 BETTING MODE - Only execute if NOT in wait mode
+    console.log(`BETTING MODE - SL ${currentSl} - Bet Count: ${currentBetCount}/3, Amount: ${currentAmount}K`);
+
     // Check if Bet Limit Reached (3 bets)
-    if (!slSession.is_wait_mode && currentBetCount >= 3) {
+    if (currentBetCount >= 3) {
         console.log(`DEBUG: Bet Count limit reached (${currentBetCount}/3), moving to next SL level`);
         
         // Move to next SL level
@@ -3004,12 +3047,13 @@ Message: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`;
         const newIndex = (currentIndex + 1) % patternList.length;
         const newSl = patternList[newIndex];
         
-        // Check if new SL requires Wait Mode
+        // 🟢 FIX: New SL အတွက် mode ကို ဆုံးဖြတ်ပါ
+        // SL 2 နဲ့အထက်ဆိုရင် WAIT MODE ဖြစ်မယ်
         const isNewWaitMode = newSl >= 2;
         
         console.log(`DEBUG: Moving from SL ${currentSl} to SL ${newSl}, Wait Mode: ${isNewWaitMode}`);
         
-        // Reset wait loss count and bet count
+        // Reset wait loss count and bet count for new SL
         await this.saveSlBetSession(userId, isNewWaitMode, '', '', 0, 0);
         await this.updateSlPattern(userId, newSl, newIndex, 0, 0);
 
@@ -3028,157 +3072,84 @@ Wait Loss: 0/${newSl}`;
         return;
     }
 
-    const currentMainIndex = await this.getUserSetting(userId, 'current_bet_index', 0);
-    const betSequence = await this.getUserSetting(userId, 'bet_sequence', '100,300,700,1600,3200,7600,16000,32000');
-    const amounts = betSequence.split(',').map(x => parseInt(x.trim()));
+    // 🟢 BETTING MODE - Place bet
+    console.log(`BETTING MODE - Placing bet for SL ${currentSl}, Amount: ${currentAmount}K, Bet Count: ${currentBetCount}/3`);
 
-    let currentAmount;
-    if (currentMainIndex < amounts.length) {
-        currentAmount = amounts[currentMainIndex];
-    } else {
-        currentAmount = amounts[0] || 100;
-        await this.saveUserSetting(userId, 'current_bet_index', 0);
-    }
+    let betType, betTypeStr, currentPatternIndex, formulaType;
 
-    console.log(`SL BOT BET PLACEMENT - Wait Mode: ${slSession.is_wait_mode}, Current Bet Count: ${currentBetCount}, Amount: ${currentAmount}K, SL: ${currentSl}`);
-
-    if (slSession.is_wait_mode) {
-        // WAIT MODE - No actual betting, just wait for results
-        console.log(`WAIT BOT MODE - SL ${currentSl} - Wait Loss: ${waitLossCount}/${currentWaitLossLimit}`);
+    // Determine which pattern to use
+    if (patternsData.bs_pattern) {
+        const result = await this.getNextFormulaBet(userId, 'bs');
+        const nextBet = result.nextBet;
+        currentPatternIndex = result.currentIndex;
+        formulaType = "BS Formula";
         
-        // Determine which pattern to use for display
-        let nextBet, currentPatternIndex, formulaType;
-        if (patternsData.bs_pattern) {
-            const result = await this.getNextFormulaBet(userId, 'bs');
-            nextBet = result.nextBet;
-            currentPatternIndex = result.currentIndex;
-            formulaType = "BS Formula";
-        } else if (patternsData.colour_pattern) {
-            const result = await this.getNextFormulaBet(userId, 'colour');
-            nextBet = result.nextBet;
-            currentPatternIndex = result.currentIndex;
-            formulaType = "Colour Formula";
-        } else {
-            nextBet = null;
-            formulaType = "Auto";
-        }
-
-        let betTypeStr;
-        if (nextBet) {
-            if (nextBet === 'B') {
-                betTypeStr = `BIG (${formulaType} - WAIT)`;
-            } else if (nextBet === 'S') {
-                betTypeStr = `SMALL (${formulaType} - WAIT)`;
-            } else if (nextBet === 'R') {
-                betTypeStr = `RED (${formulaType} - WAIT)`;
-            } else if (nextBet === 'G') {
-                betTypeStr = `GREEN (${formulaType} - WAIT)`;
-            } else if (nextBet === 'V') {
-                betTypeStr = `VIOLET (${formulaType} - WAIT)`;
-            } else {
-                betTypeStr = `UNKNOWN (${formulaType} - WAIT)`;
-            }
-        } else {
-            const fallback = await this.getFollowBetType(userSession.apiInstance);
-            betTypeStr = `${fallback.betTypeStr} (WAIT)`;
-        }
-
-        // Save pending bet for result checking (amount = 0 for wait mode)
-        await this.savePendingBet(userId, userSession.platform, issue, betTypeStr, 0);
-
-        if (!issueCheckers[userId]) {
-            this.startIssueChecker(userId);
-        }
-
-        const waitMessage = `SL Bot - Wait Mode
-
-SL Level: ${currentSl}
-Issue: ${issue}
-Type: Waiting for result...
-Wait Loss: ${waitLossCount}/${currentWaitLossLimit}
-`;
-
-        await this.bot.sendMessage(userId, waitMessage);
-        waitingForResults[userId] = false;
-    } else {
-        // BETTING MODE - Actual betting
-        console.log(`BETTING MODE - SL ${currentSl} - Bet Count: ${currentBetCount}/3`);
-        
-        let betType, betTypeStr, currentPatternIndex, formulaType;
-
-        // Determine which pattern to use
-        if (patternsData.bs_pattern) {
-            const result = await this.getNextFormulaBet(userId, 'bs');
-            const nextBet = result.nextBet;
-            currentPatternIndex = result.currentIndex;
-            formulaType = "BS Formula";
-            
-            if (nextBet === 'B') {
-                betType = 13;
-                betTypeStr = `BIG (${formulaType})`;
-            } else if (nextBet === 'S') {
-                betType = 14;
-                betTypeStr = `SMALL (${formulaType})`;
-            } else {
-                const fallback = await this.getFollowBetType(userSession.apiInstance);
-                betType = fallback.betType;
-                betTypeStr = fallback.betTypeStr;
-            }
-        } else if (patternsData.colour_pattern) {
-            const result = await this.getNextFormulaBet(userId, 'colour');
-            const nextBet = result.nextBet;
-            currentPatternIndex = result.currentIndex;
-            formulaType = "Colour Formula";
-            
-            if (nextBet === 'R') {
-                betType = COLOUR_BET_TYPES["RED"];
-                betTypeStr = `RED (${formulaType})`;
-            } else if (nextBet === 'G') {
-                betType = COLOUR_BET_TYPES["GREEN"];
-                betTypeStr = `GREEN (${formulaType})`;
-            } else if (nextBet === 'V') {
-                betType = COLOUR_BET_TYPES["VIOLET"];
-                betTypeStr = `VIOLET (${formulaType})`;
-            } else {
-                const colours = ["RED", "GREEN", "VIOLET"];
-                const randomColour = colours[Math.floor(Math.random() * colours.length)];
-                betType = COLOUR_BET_TYPES[randomColour];
-                betTypeStr = randomColour;
-            }
+        if (nextBet === 'B') {
+            betType = 13;
+            betTypeStr = `BIG (${formulaType})`;
+        } else if (nextBet === 'S') {
+            betType = 14;
+            betTypeStr = `SMALL (${formulaType})`;
         } else {
             const fallback = await this.getFollowBetType(userSession.apiInstance);
             betType = fallback.betType;
             betTypeStr = fallback.betTypeStr;
         }
-
-        const amount = currentAmount;
-        const balance = await userSession.apiInstance.getBalance();
-
-        if (amount > 0 && balance < amount) {
-            this.bot.sendMessage(userId, `Insufficient Balance!\n\nNeed: ${amount.toLocaleString()} K\nAvailable: ${balance.toLocaleString()} K`).catch(console.error);
-            delete autoBettingTasks[userId];
-            delete waitingForResults[userId];
-            return;
+    } else if (patternsData.colour_pattern) {
+        const result = await this.getNextFormulaBet(userId, 'colour');
+        const nextBet = result.nextBet;
+        currentPatternIndex = result.currentIndex;
+        formulaType = "Colour Formula";
+        
+        if (nextBet === 'R') {
+            betType = COLOUR_BET_TYPES["RED"];
+            betTypeStr = `RED (${formulaType})`;
+        } else if (nextBet === 'G') {
+            betType = COLOUR_BET_TYPES["GREEN"];
+            betTypeStr = `GREEN (${formulaType})`;
+        } else if (nextBet === 'V') {
+            betType = COLOUR_BET_TYPES["VIOLET"];
+            betTypeStr = `VIOLET (${formulaType})`;
+        } else {
+            const colours = ["RED", "GREEN", "VIOLET"];
+            const randomColour = colours[Math.floor(Math.random() * colours.length)];
+            betType = COLOUR_BET_TYPES[randomColour];
+            betTypeStr = randomColour;
         }
+    } else {
+        const fallback = await this.getFollowBetType(userSession.apiInstance);
+        betType = fallback.betType;
+        betTypeStr = fallback.betTypeStr;
+    }
 
-        try {
-            const result = await userSession.apiInstance.placeBet(amount, betType);
+    const amount = currentAmount;
+    const balance = await userSession.apiInstance.getBalance();
+
+    if (amount > 0 && balance < amount) {
+        this.bot.sendMessage(userId, `Insufficient Balance!\n\nNeed: ${amount.toLocaleString()} K\nAvailable: ${balance.toLocaleString()} K`).catch(console.error);
+        delete autoBettingTasks[userId];
+        delete waitingForResults[userId];
+        return;
+    }
+
+    try {
+        const result = await userSession.apiInstance.placeBet(amount, betType);
+        
+        if (result.success) {
+            // Increment bet count
+            const nextBetCount = currentBetCount + 1;
+            console.log(`DEBUG: Bet placed - Bet Count: ${currentBetCount} -> ${nextBetCount}`);
             
-            if (result.success) {
-                // Increment bet count
-                const nextBetCount = currentBetCount + 1;
-                console.log(`DEBUG: Bet placed - Bet Count: ${currentBetCount} -> ${nextBetCount}`);
-                
-                await this.updateSlPattern(userId, null, null, null, nextBetCount);
-                
-                await this.savePendingBet(userId, userSession.platform, result.issueId, betTypeStr, amount);
-                await this.updateBotStats(userId);
-                
-                if (!issueCheckers[userId]) {
-                    this.startIssueChecker(userId);
-                }
+            await this.updateSlPattern(userId, null, null, null, nextBetCount);
+            
+            await this.savePendingBet(userId, userSession.platform, result.issueId, betTypeStr, amount);
+            await this.updateBotStats(userId);
+            
+            if (!issueCheckers[userId]) {
+                this.startIssueChecker(userId);
+            }
 
-                const betMessage = `SL Bot - Active Bet
+            const betMessage = `SL Bot - Active Bet
 
 SL Level: ${currentSl}
 Issue: ${result.issueId}
@@ -3187,15 +3158,14 @@ Amount: ${amount.toLocaleString()} K
 Bet Count: ${nextBetCount}/3
 `;
 
-                await this.bot.sendMessage(userId, betMessage);
-            } else {
-                await this.bot.sendMessage(userId, `SL Bot Bet Failed\n\nError: ${result.message}`);
-                waitingForResults[userId] = false;
-            }
-        } catch (error) {
-            console.error(`SL bet placement error:`, error);
+            await this.bot.sendMessage(userId, betMessage);
+        } else {
+            await this.bot.sendMessage(userId, `SL Bot Bet Failed\n\nError: ${result.message}`);
             waitingForResults[userId] = false;
         }
+    } catch (error) {
+        console.error(`SL bet placement error:`, error);
+        waitingForResults[userId] = false;
     }
 }
 
@@ -3453,18 +3423,20 @@ Bet Count: ${nextBetCount}/3
             [userId, platform, issue]
         );
 
-        // Check if this is an SL bet (Wait Bot mode included)
-        const isSlBet = betTypeStr.includes("(SL") || 
-                betTypeStr.includes("SL Layer") || 
-                betTypeStr.includes("SL Bot") || 
-                betTypeStr.includes("WAIT BOT") ||
-                betTypeStr.includes("BS Formula - SL") ||  // ADDED
-                betTypeStr.includes("Colour Formula - SL"); // ADDED
+        // checkSingleBetResult function ထဲမှာ ဒီအပိုင်းကို ရှာပါ
+const isSlBet = betTypeStr.includes("(SL") || 
+        betTypeStr.includes("SL Layer") || 
+        betTypeStr.includes("SL Bot") || 
+        betTypeStr.includes("WAIT BOT") ||
+        betTypeStr.includes("BS Formula - SL") ||
+        betTypeStr.includes("Colour Formula - SL") ||
+        betTypeStr.includes("WAIT"); // 🟢 ADD THIS
 
-        if (isSlBet) {
-            console.log(`DEBUG: This is an SL bet, processing SL bet result`);
-            await this.checkSlBetResult(userId, issue, betTypeStr, amount, platform, betResult, profitLoss);
-        } else {
+if (isSlBet) {
+    console.log(`DEBUG: This is an SL bet, processing SL bet result`);
+    await this.checkSlBetResult(userId, issue, betTypeStr, amount, platform, betResult, profitLoss);
+} else {
+  
             console.log(`DEBUG: This is a normal bet, processing normally`);
             // Normal bet processing
             const slSession = await this.getSlBetSession(userId);
@@ -3631,6 +3603,167 @@ PROFIT: ${botSession.total_profit.toLocaleString()} K`;
 
     } catch (error) {
         console.error(`Error processing SKIP bet:`, error);
+        if (waitingForResults[userId]) {
+            waitingForResults[userId] = false;
+        }
+    }
+}
+async checkSlBetResult(userId, issue, betTypeStr, amount, platform, result, profitLoss) {
+    try {
+        console.log(`DEBUG: SL Bet Result Check - Issue: ${issue}, Result: ${result}, BetType: ${betTypeStr}`);
+
+        const slPatternData = await this.getSlPattern(userId);
+        const slSession = await this.getSlBetSession(userId);
+
+        const currentSl = slPatternData.current_sl;
+        const currentBetCount = slPatternData.bet_count;
+        const waitLossCount = slPatternData.wait_loss_count;
+
+        console.log(`DEBUG: Current SL: ${currentSl}, Bet Count: ${currentBetCount}, Wait Loss: ${waitLossCount}, Wait Mode: ${slSession.is_wait_mode}`);
+
+        const botSession = await this.getBotSession(userId);
+        const totalProfit = botSession.total_profit;
+
+        // Pattern list
+        const patternList = slPatternData.pattern.split(',').map(x => parseInt(x.trim()));
+        const currentIndex = slPatternData.current_index;
+        const currentWaitLossLimit = patternList[currentIndex] || patternList[patternList.length - 1];
+
+        // Bet sequence update (only for betting mode)
+        if (!slSession.is_wait_mode) {
+            const currentMainIndex = await this.getUserSetting(userId, 'current_bet_index', 0);
+            const betSequence = await this.getUserSetting(userId, 'bet_sequence', '100,300,700,1600,3200,7600,16000,32000');
+            const amounts = betSequence.split(',').map(x => parseInt(x.trim()));
+
+            if (result === "WIN") {
+                await this.updateBetSequence(userId, "WIN");
+                console.log(`WIN - Sequence reset to Step 1`);
+            } else {
+                const newIndex = await this.updateBetSequence(userId, "LOSE");
+                const nextAmount = amounts[newIndex] || amounts[0];
+                console.log(`LOSE - Next bet: Step ${newIndex + 1} (${nextAmount}K)`);
+            }
+        }
+
+        // 🔥 MAIN LOGIC: SL Pattern Processing
+        let newBetCount = currentBetCount;
+        let newWaitLossCount = waitLossCount;
+        let slChanged = false;
+        let newSl = currentSl;
+        let newIndex = currentIndex;
+        let isNewWaitMode = slSession.is_wait_mode;
+
+        if (slSession.is_wait_mode) {
+            // ===== WAIT MODE =====
+            console.log(`WAIT MODE Processing - SL ${currentSl}, Wait Loss: ${waitLossCount}/${currentWaitLossLimit}`);
+            
+            if (result === "WIN") {
+                // WIN in Wait Mode: Reset wait loss count (stay in Wait Mode)
+                newWaitLossCount = 0;
+                isNewWaitMode = true;
+                console.log(`WAIT MODE WIN - Wait Loss Reset to 0, staying in WAIT MODE`);
+                
+                await this.bot.sendMessage(userId, `WAIT BOT - WIN!\n\nWait Loss Reset: 0/${currentWaitLossLimit}\nStill in WAIT MODE for SL ${currentSl}`);
+            } else {
+                // LOSS in Wait Mode: Increment wait loss count
+                newWaitLossCount = waitLossCount + 1;
+                console.log(`WAIT MODE LOSS - Wait Loss: ${waitLossCount} -> ${newWaitLossCount}`);
+                
+                // Check if wait loss limit reached
+                if (newWaitLossCount >= currentWaitLossLimit) {
+                    // Wait limit reached → Switch to BETTING MODE (same SL)
+                    isNewWaitMode = false;
+                    newWaitLossCount = 0;
+                    newBetCount = 0;
+                    slChanged = true;
+                    
+                    console.log(`WAIT LIMIT REACHED! Switching to BETTING MODE for SL ${currentSl}`);
+                    
+                    await this.bot.sendMessage(userId, `WAIT LIMIT REACHED!\n\nSL ${currentSl} - Switching to BETTING MODE\nBet Count: 0/3\nWait Loss: 0/${currentWaitLossLimit}`);
+                } else {
+                    // Still in wait mode
+                    isNewWaitMode = true;
+                    await this.bot.sendMessage(userId, `WAIT BOT - LOSS!\n\nWait Loss: ${newWaitLossCount}/${currentWaitLossLimit}\nStill in WAIT MODE for SL ${currentSl}`);
+                }
+            }
+        } else {
+            // ===== BETTING MODE =====
+            console.log(`BETTING MODE Processing - SL ${currentSl}, Bet Count: ${currentBetCount}/3`);
+            
+            if (result === "WIN") {
+                // WIN in Betting Mode → Reset everything back to first SL (SL 1)
+                newSl = patternList[0];
+                newIndex = 0;
+                newBetCount = 0;
+                newWaitLossCount = 0;
+                
+                // First SL is always BETTING mode (SL 1)
+                isNewWaitMode = newSl >= 2;
+                slChanged = true;
+                
+                console.log(`BETTING WIN! Reset to SL ${newSl}, Wait Mode: ${isNewWaitMode}`);
+                
+                // Reset formula patterns
+                const patternsData = await this.getFormulaPatterns(userId);
+                if (patternsData.bs_pattern) {
+                    await this.db.run('UPDATE formula_patterns SET bs_current_index = 0 WHERE user_id = ?', [userId]);
+                }
+                if (patternsData.colour_pattern) {
+                    await this.db.run('UPDATE formula_patterns SET colour_current_index = 0 WHERE user_id = ?', [userId]);
+                }
+                
+                // Reset bet sequence to step 1
+                await this.saveUserSetting(userId, 'current_bet_index', 0);
+                
+                await this.bot.sendMessage(userId, `BET RESULT - WIN!\n\nResetting to SL ${newSl}\nMode: ${isNewWaitMode ? 'WAIT BOT' : 'BETTING'}\nBet Count: 0/3\nWait Loss: 0/${newSl}`);
+                
+            } else {
+                // LOSS in Betting Mode
+                newBetCount = currentBetCount; // Keep the same (already incremented in placeSlBet)
+                
+                // Check if bet count reached 3
+                if (newBetCount >= 3) {
+                    // 3 bets completed → Move to next SL
+                    const nextIndex = (currentIndex + 1) % patternList.length;
+                    newIndex = nextIndex;
+                    newSl = patternList[nextIndex];
+                    
+                    // New SL mode determination
+                    // SL 2 နဲ့အထက်ဆိုရင် WAIT MODE ဖြစ်မယ်
+                    isNewWaitMode = newSl >= 2;
+                    
+                    // Reset counts for new SL
+                    newWaitLossCount = 0;
+                    newBetCount = 0;
+                    slChanged = true;
+                    
+                    console.log(`3 BETS COMPLETED! Moving from SL ${currentSl} to SL ${newSl}, Wait Mode: ${isNewWaitMode}`);
+                    
+                    const modeText = isNewWaitMode ? "WAIT BOT" : "BETTING";
+                    await this.bot.sendMessage(userId, `SL LEVEL CHANGED!\n\nBet Count: 3/3 reached\nSL ${currentSl} -> SL ${newSl}\nMode: ${modeText}\nCounts Reset`);
+                } else {
+                    // Still in betting mode
+                    isNewWaitMode = false;
+                    await this.bot.sendMessage(userId, `BET RESULT - LOSE!\n\nBet Count: ${newBetCount}/3\nContinuing BETTING MODE for SL ${currentSl}`);
+                }
+            }
+        }
+
+        // Save updated SL pattern
+        if (slChanged || newWaitLossCount !== waitLossCount || newBetCount !== currentBetCount) {
+            await this.saveSlBetSession(userId, isNewWaitMode, '', '', 0, 0);
+            await this.updateSlPattern(userId, newSl, newIndex, newWaitLossCount, newBetCount);
+            console.log(`DEBUG: SL Pattern Updated - SL: ${newSl}, Index: ${newIndex}, Wait Loss: ${newWaitLossCount}, Bet Count: ${newBetCount}`);
+        }
+
+        await this.checkProfitLossTargets(userId, botSession);
+
+        if (waitingForResults[userId]) {
+            waitingForResults[userId] = false;
+        }
+
+    } catch (error) {
+        console.error(`Error processing SL bet result: ${error}`);
         if (waitingForResults[userId]) {
             waitingForResults[userId] = false;
         }
